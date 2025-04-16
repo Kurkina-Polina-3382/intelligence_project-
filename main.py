@@ -7,21 +7,25 @@ import params as params
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Embedding, Flatten
+from tensorflow.keras.layers import Dense, Embedding, Flatten, Input
 #from tensorflow.keras.preprocessing.text import Tokenizer
 #from tokenizers import Tokenizer, models, trainers
 from tokenizers import ByteLevelBPETokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from gensim.models import Word2Vec
 from tensorflow.keras.models import load_model
+
 import nltk
 from nltk.corpus import stopwords
+nltk.download('stopwords')
+
 from nltk.tokenize import sent_tokenize, word_tokenize
-from sklearn.model_selection import train_test_split 
-import pickle
 from nltk.stem.snowball import SnowballStemmer
 nltk.download('punkt')
-nltk.download('stopwords')
+from sklearn.model_selection import train_test_split 
+import pickle
+
+
 
 def preprocess_text():
     print("preprocessing text")
@@ -35,27 +39,36 @@ def preprocess_text():
         with open("learning_data/" + f, 'r', encoding='utf-8') as file:
             text = file.read()
             sentences = sent_tokenize(text, language='russian')  # преобразуем текст в список предложений (токенов)
+            print(sentences)
             for sent in sentences:
                 # Приведение к нижнему регистру
                 sent = sent.lower()
                     
                 # Удаление спецсимволов и цифр
                 sent = re.sub(r'[^а-яёa-z\s]', '', sent) 
+                print("\nУдаление спецсимволов и цифр\n")
+                print(sent)
                 
                 # Токенизация
                 tokens = word_tokenize(sent, language='russian')
-                
+                print("\nТокенизация\n")
+                print(tokens)
+
                 # Удаление стоп-слов
-               
-                #tokens = [word for word in tokens if word not in stop_words]
+                tokens = [word for word in tokens if word not in stop_words]
+                print("\nУдаление стоп-слов\n")
+                print(tokens)
                 
                 # Стемминг
                 # но вообще можно использовать лемматизацию. она должна давать лучше результат (бежал - бегать) morph = MorphAnalyzer()
-                
                 #tokens = stemmer.stemWords(tokens)  # принимает список слов, возвращает список основ
-                if tokens:  # Если есть токены для обработки
-                    #tokens = stemmer.stemWords(tokens)
-                    data.append(tokens)  # Добавляем список токенов (предложение)
+                tokens = [stemmer.stem(word) for word in tokens]
+                print("\nСтемминг\n")
+                print(tokens)
+                data.append(tokens)  # Добавляем список токенов (предложение)
+                #может и не делать разбиение на предложение
+                
+                    
     
     # Фильтрация от пустых предложений
     data = [sent for sent in data if sent]
@@ -110,11 +123,13 @@ def prepare_data(texts, word2vec_model, tokenizer, L=5):
 
 # 4. Создание и обучение нейросети
 def create_model(embedding_size):
+    
     model = Sequential([
-        # запуталась с этой хуйней. 
-        Flatten(input_shape=(5, embedding_size)),
-        #Embedding(params.vocab_size, embedding_size, input_length=params.L),
-        #Flatten(),
+        Input(shape=(5, embedding_size)),
+        #  про Flatten Выравнивает входные данные. Не влияет на размер пакета.
+        # Примечание: если входные данные имеют форму (batch,) без оси признаков, то при сглаживании добавляется дополнительный размер канала, и выходная форма будет (batch, 1).
+        Flatten(),
+#Embedding(params.vocab_size, embedding_size, input_length=params.L), 
         Dense(1500, activation='relu'),
         Dense(params.vocab_size, activation='softmax')
     ])

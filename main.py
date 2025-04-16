@@ -8,9 +8,10 @@ import params as params
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Embedding, Flatten, Input
-#from tensorflow.keras.preprocessing.text import Tokenizer
+
+from tensorflow.keras.preprocessing.text import Tokenizer
 #from tokenizers import Tokenizer, models, trainers
-from tokenizers import ByteLevelBPETokenizer
+#from tokenizers import ByteLevelBPETokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from gensim.models import Word2Vec
 from tensorflow.keras.models import load_model
@@ -25,7 +26,17 @@ nltk.download('punkt')
 from sklearn.model_selection import train_test_split 
 import pickle
 
-
+''' можно в теории так препроцессинг делать 
+tf.keras.preprocessing.text.Tokenizer(
+    num_words=None,
+    filters='!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n',
+    lower=True,
+    split=' ',
+    char_level=False,
+    oov_token=None,
+    analyzer=None,
+    **kwargs
+)'''
 
 def preprocess_text():
     print("preprocessing text")
@@ -39,32 +50,26 @@ def preprocess_text():
         with open("learning_data/" + f, 'r', encoding='utf-8') as file:
             text = file.read()
             sentences = sent_tokenize(text, language='russian')  # преобразуем текст в список предложений (токенов)
-            print(sentences)
+            
             for sent in sentences:
                 # Приведение к нижнему регистру
                 sent = sent.lower()
                     
                 # Удаление спецсимволов и цифр
                 sent = re.sub(r'[^а-яёa-z\s]', '', sent) 
-                print("\nУдаление спецсимволов и цифр\n")
-                print(sent)
+                
                 
                 # Токенизация
                 tokens = word_tokenize(sent, language='russian')
-                print("\nТокенизация\n")
-                print(tokens)
+
 
                 # Удаление стоп-слов
                 tokens = [word for word in tokens if word not in stop_words]
-                print("\nУдаление стоп-слов\n")
-                print(tokens)
                 
                 # Стемминг
                 # но вообще можно использовать лемматизацию. она должна давать лучше результат (бежал - бегать) morph = MorphAnalyzer()
-                #tokens = stemmer.stemWords(tokens)  # принимает список слов, возвращает список основ
                 tokens = [stemmer.stem(word) for word in tokens]
-                print("\nСтемминг\n")
-                print(tokens)
+                
                 data.append(tokens)  # Добавляем список токенов (предложение)
                 #может и не делать разбиение на предложение
                 
@@ -77,15 +82,17 @@ def preprocess_text():
 
 text = preprocess_text()
 
-# Преобразование в числовые индексы Векторизация (токенизация в числа)
-tokenizer = ByteLevelBPETokenizer()
-with open("temp_corpus.txt", "w", encoding="utf-8") as f:
-    for sentence in text:
-        f.write(" ".join(sentence) + "\n")
-tokenizer.train(files=["temp_corpus.txt"], vocab_size=params.vocab_size)
+# Преобразование в числовые индексы Векторизация (токениза
+# ция в числа)
+tokenizer = Tokenizer(num_words=10_000, oov_token=0)
+tokenizer.fit_on_texts(text)
+# text to sequenses like  [[4, 5, 6, 7, 8, 9, 10, 11, 12], [2, 13, 14, 15, 16, 17],
+text_sequences = tokenizer.texts_to_sequences(text)
+# print(tokenizer.get_config())
+# print("\n\n\n")
+# print(text_sequences)
 
-
-# Сохранение 
+# Сохранение надо теперь через json писать
 #tokenizer.save_model("output/tokenizer")
 
 # эмбединги

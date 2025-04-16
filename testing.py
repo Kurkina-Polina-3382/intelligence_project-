@@ -12,7 +12,7 @@ from gensim.models import Word2Vec
 from tensorflow.keras.models import load_model
 import pickle
 
-# Загрузка токенизатора
+# Загрузка токенизатора которую надо изменить и видимо делать из json
 tokenizer = ByteLevelBPETokenizer.from_file("output/vocab.json", "output/merges.txt")
 
 # 5. Тестирование модели на небольшом предложении
@@ -23,7 +23,7 @@ test_sequence = pad_sequences([test_sequence], maxlen=params.L, padding='pre')
 # Предсказание следующего слова для каждой модели
 for size in params.embedding_sizes:
     # Загрузка модели
-    loaded_model = load_model(f"output/model_trained{size}.keras")  # пример для size=32
+    loaded_model = load_model(f"output/model_trained{size}.keras")
 
     # Предсказание
     predictions = loaded_model.predict(test_sequence)

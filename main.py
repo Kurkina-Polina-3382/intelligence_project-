@@ -1,66 +1,122 @@
-import numpy as np                   # продвинутая математическая библиотека
+import numpy as np   
+import re               
+import os
 import matplotlib.pyplot as plt      # библиотека для рисования графиков
-import random            
+import random  
+import params as params          
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Embedding, Flatten
-from tensorflow.keras.preprocessing.text import Tokenizer
+#from tensorflow.keras.preprocessing.text import Tokenizer
+#from tokenizers import Tokenizer, models, trainers
+from tokenizers import ByteLevelBPETokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from gensim.models import Word2Vec
 from tensorflow.keras.models import load_model
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import sent_tokenize, word_tokenize
+from sklearn.model_selection import train_test_split 
 import pickle
+from nltk.stem.snowball import SnowballStemmer
+nltk.download('punkt')
+nltk.download('stopwords')
 
-text = """
-Война и мир - роман Льва Толстого, одно из величайших произведений мировой литературы. 
-Описывает русское общество в эпоху войн против Наполеона. 
-Главные герои: Пьер Безухов, Андрей Болконский, Наташа Ростова.
-"""
+def preprocess_text():
+    print("preprocessing text")
+    learning_files = os.listdir("learning_data")
+    data = []  
 
-# Токенизация текста
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts([text])
-sequences = tokenizer.texts_to_sequences([text])[0]
-vocab_size = len(tokenizer.word_index) + 1
+    stemmer = SnowballStemmer("russian")
+    stop_words = set(stopwords.words('russian'))
 
-# Сохранение
-with open('tokenizer.pkl', 'wb') as f:
-    pickle.dump(tokenizer, f)
+    for f in learning_files:
+        with open("learning_data/" + f, 'r', encoding='utf-8') as file:
+            text = file.read()
+            sentences = sent_tokenize(text, language='russian')  # преобразуем текст в список предложений (токенов)
+            for sent in sentences:
+                # Приведение к нижнему регистру
+                sent = sent.lower()
+                    
+                # Удаление спецсимволов и цифр
+                sent = re.sub(r'[^а-яёa-z\s]', '', sent) 
+                
+                # Токенизация
+                tokens = word_tokenize(sent, language='russian')
+                
+                # Удаление стоп-слов
+               
+                #tokens = [word for word in tokens if word not in stop_words]
+                
+                # Стемминг
+                # но вообще можно использовать лемматизацию. она должна давать лучше результат (бежал - бегать) morph = MorphAnalyzer()
+                
+                #tokens = stemmer.stemWords(tokens)  # принимает список слов, возвращает список основ
+                if tokens:  # Если есть токены для обработки
+                    #tokens = stemmer.stemWords(tokens)
+                    data.append(tokens)  # Добавляем список токенов (предложение)
+    
+    # Фильтрация от пустых предложений
+    data = [sent for sent in data if sent]
+    print(data)
+    return data
 
-# 2. Построение эмбедингов Word2Vec с разными размерностями
-sentences = [text.split()]  # преобразуем текст в список предложений (токенов)
+text = preprocess_text()
 
-embedding_sizes = [100, 500, 1000]
+# Преобразование в числовые индексы Векторизация (токенизация в числа)
+tokenizer = ByteLevelBPETokenizer()
+with open("temp_corpus.txt", "w", encoding="utf-8") as f:
+    for sentence in text:
+        f.write(" ".join(sentence) + "\n")
+tokenizer.train(files=["temp_corpus.txt"], vocab_size=params.vocab_size)
+
+
+# Сохранение 
+#tokenizer.save_model("output/tokenizer")
+
+# эмбединги
 word2vec_models = {}
 
-for size in embedding_sizes:
-    model = Word2Vec(sentences, vector_size=size, window=5, min_count=1, workers=4)
+for size in params.embedding_sizes:
+    model = Word2Vec(text, vector_size=size, window=5, min_count=1, workers=4)
     word2vec_models[size] = model
-
-# Функция для преобразования слова в вектор с помощью Word2Vec
-def word_to_vec(word, embedding_size):
-    return word2vec_models[embedding_size].wv[word]
+    # сохраняем
+    model.save(f"output/word2vec{size}.model")
 
 # 3. Подготовка данных для нейросети
-L = 5  # количество предыдущих слов для предсказания следующего
-X = []
-y = []
 
-for i in range(L, len(sequences)):
-    X.append(sequences[i-L:i])
-    y.append(sequences[i])
+def prepare_data(texts, word2vec_model, tokenizer, L=5):
+    X, y = [], []
+    for sentence in texts:
+        for i in range(len(sentence) - L):
+            # Берем L слов и следующее за ними
+            context = sentence[i:i+L]
+            target = sentence[i+L]
+            
+            # Заменяем слова на векторы
+            context_vectors = [word2vec_model.wv[word] for word in context]
+            X.append(context_vectors)
+            y.append(target)
+    #print("X", X, "\n y", y)
+    # Преобразуем слова в индексы через tokenizer
+    y_indices = [tokenizer.encode(word).ids[0] for word in y]
+    #print("y_indeces", y_indices)
+    y = tf.keras.utils.to_categorical(y_indices, num_classes=params.vocab_size)
+    #print(y)
 
-X = np.array(X)
-y = np.array(y)
-y = tf.keras.utils.to_categorical(y, num_classes=vocab_size)
+    return np.array(X), np.array(y)
+
 
 # 4. Создание и обучение нейросети
 def create_model(embedding_size):
     model = Sequential([
-        Embedding(vocab_size, embedding_size, input_length=L),
-        Flatten(),
-        Dense(500, activation='relu'),
-        Dense(vocab_size, activation='softmax')
+        # запуталась с этой хуйней. 
+        Flatten(input_shape=(5, embedding_size)),
+        #Embedding(params.vocab_size, embedding_size, input_length=params.L),
+        #Flatten(),
+        Dense(1500, activation='relu'),
+        Dense(params.vocab_size, activation='softmax')
     ])
     
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
@@ -69,15 +125,20 @@ def create_model(embedding_size):
 # Обучаем модели с разными эмбедингами
 history_dict = {}
 
-for size in embedding_sizes:
-    print(f"\nTraining model with embedding size {size}")
+# Для каждого размера эмбеддинга:
+for size in params.embedding_sizes:
+    X, y = prepare_data(text, word2vec_models[size], tokenizer, L=params.L)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    
     model = create_model(size)
-    history = model.fit(X, y, epochs=50, batch_size=2, verbose=1)
+    history = model.fit(X_train, y_train, epochs=params.epochs, batch_size=params.batch_size)
     history_dict[size] = history.history['loss']
-
+    loss, accuracy = model.evaluate(X_test, y_test)
+    print(f"Size {size}: Test accuracy = {accuracy:.4f} Test Loss: {loss:.4f}")
     # Сохраняем модель в файл
-    model.save(f"model_trained{size}.keras")  
+    model.save(f"output/model_trained{size}.keras")  
     print(f"Model with embedding size {size} saved!")
+ 
 
 # Визуализация потерь при обучении
 plt.figure(figsize=(10, 6))

@@ -1,0 +1,9 @@
+numpy
+tensorflow
+tokenizers
+scikit-learn
+sklearn
+Stemmer
+nltk
+gensim
+pickle

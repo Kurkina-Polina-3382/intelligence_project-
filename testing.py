@@ -1,6 +1,7 @@
 import numpy as np                   # продвинутая математическая библиотека
 import matplotlib.pyplot as plt      # библиотека для рисования графиков
-import random            
+import random       
+import params as params     
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
@@ -11,20 +12,18 @@ from gensim.models import Word2Vec
 from tensorflow.keras.models import load_model
 import pickle
 
-embedding_sizes = [100, 500, 1000]
 # Загрузка токенизатора
-with open('tokenizer.pkl', 'rb') as f:
-    tokenizer = pickle.load(f)
+tokenizer = ByteLevelBPETokenizer.from_file("output/vocab.json", "output/merges.txt")
 
 # 5. Тестирование модели на небольшом предложении
 test_sentence = "Описывает русское общество в"
 test_sequence = tokenizer.texts_to_sequences([test_sentence])[0]
-test_sequence = pad_sequences([test_sequence], maxlen=L, padding='pre')
+test_sequence = pad_sequences([test_sequence], maxlen=params.L, padding='pre')
 
 # Предсказание следующего слова для каждой модели
-for size in embedding_sizes:
+for size in params.embedding_sizes:
     # Загрузка модели
-    loaded_model = load_model(f"model_trained{size}.keras")  # пример для size=32
+    loaded_model = load_model(f"output/model_trained{size}.keras")  # пример для size=32
 
     # Предсказание
     predictions = loaded_model.predict(test_sequence)

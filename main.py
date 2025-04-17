@@ -198,13 +198,6 @@ for size in params.embedding_sizes:
     predicted_word = idx_to_word[np.argmax(output)]
     print(f"Предсказанное слово моделью {size} : {predicted_word}")
 
-# with Pool(processes=len(params.embedding_sizes)) as pool:
-#     results = pool.map(train_model, [(size, trained_models[size]) for size in params.embedding_sizes])
-    
-#     for res in results:
-#         print(f"Size {res['size']}: Accuracy = {res['accuracy']:.4f}")
-#         history_dict[res['size']] = res['history']['loss']
-
 # визуализация потерь при обучении
 plt.figure(figsize=(10, 6))
 for size, losses in history_dict.items():

@@ -1,7 +1,8 @@
 import numpy as np   
 import re               
 import os
-import matplotlib.pyplot as plt       
+import matplotlib.pyplot as plt  
+from collections import Counter     
    
 import pickle       
 from sklearn.model_selection import train_test_split 
@@ -12,53 +13,49 @@ from tensorflow.keras.preprocessing.text import Tokenizer
 
 import nltk
 from nltk.corpus import stopwords
-nltk.download('stopwords')
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.stem.snowball import SnowballStemmer
 
-# Скачиваем необходимые ресурсы NLTK
-nltk.download('stopwords')
-nltk.download('punkt')
 
+from preprosessing_text import preprocess_text
 import params as params
 
-from gensim.models import Word2Vec
 
 
-def preprocess_text(text):
+# def preprocess_text(text):
     
-    data = []  
+#     data = []  
 
-    stemmer = SnowballStemmer("russian")
-    stop_words = set(stopwords.words('russian'))
+#     stemmer = SnowballStemmer("russian")
+#     stop_words = set(stopwords.words('russian'))
 
-    sentences = sent_tokenize(text, language='russian')  # преобразуем текст в список предложений (токенов)
+#     sentences = sent_tokenize(text, language='russian')  # преобразуем текст в список предложений (токенов)
     
-    for sent in sentences:
-        # Приведение к нижнему регистру
-        sent = sent.lower()
+#     for sent in sentences:
+#         # Приведение к нижнему регистру
+#         sent = sent.lower()
             
-        # Удаление спецсимволов и цифр
-        sent = re.sub(r'[^а-яёa-z\s]', '', sent) 
+#         # Удаление спецсимволов и цифр
+#         sent = re.sub(r'[^а-яёa-z\s]', '', sent) 
         
         
-        # Токенизация
-        tokens = word_tokenize(sent, language='russian')
+#         # Токенизация
+#         tokens = word_tokenize(sent, language='russian')
 
 
-        # Удаление стоп-слов
-        tokens = [word for word in tokens if word not in stop_words]
+#         # Удаление стоп-слов
+#         tokens = [word for word in tokens if word not in stop_words]
         
-        # Стемминг
-        # но вообще можно использовать лемматизацию. она должна давать лучше результат (бежал - бегать) morph = MorphAnalyzer()
-        tokens = [stemmer.stem(word) for word in tokens]
+#         # Стемминг
+#         # но вообще можно использовать лемматизацию. она должна давать лучше результат (бежал - бегать) morph = MorphAnalyzer()
+#         tokens = [stemmer.stem(word) for word in tokens]
         
-        data.append(tokens)  # Добавляем список токенов (предложение)
-        #может и не делать разбиение на предложение
+#         data.append(tokens)  # Добавляем список токенов (предложение)
+#         #может и не делать разбиение на предложение
                 
-    # Фильтрация от пустых предложений
-    data = [sent for sent in data if sent]
-    return data
+#     # Фильтрация от пустых предложений
+#     data = [sent for sent in data if sent]
+#     return data
 
 def load_learning_data():
     print("preprocessing text")
@@ -73,75 +70,157 @@ def load_learning_data():
 
 text = load_learning_data()
 
-# Преобразование в числовые индексы Векторизация (токениза
-# ция в числа)
-tokenizer = Tokenizer(num_words=10_000, oov_token=0)
-tokenizer.fit_on_texts(text)
+# 2. Создание словаря
 
-with open('output/tokenizer.pkl', 'wb') as handle:
-    pickle.dump(tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+def build_vocab(texts):
+    # 1. Подсчет и автоматическая сортировка слов по частоте
+    vocab = [word for word, _ in Counter(word for sentence in texts for word in sentence).most_common(params.vocab_size)]
+    
+    # 2. Добавляем служебные токены
+    vocab = ['<PAD>', '<OOV>'] + vocab
+    
+    # 3. Создаем словари
+    word_to_idx = {word: idx for idx, word in enumerate(vocab)}
+    idx_to_word = {idx: word for idx, word in enumerate(vocab)}
+    
+    return word_to_idx, idx_to_word, len(vocab)
+
+word_to_idx, idx_to_word, vocab_size = build_vocab(text)
+
+# сохраняем словари
+with open('output/vocab.pkl', 'wb') as f:
+    pickle.dump({
+        'word_to_idx': word_to_idx,
+        'idx_to_word': idx_to_word,
+        'vocab_size': vocab_size
+    }, f, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 # эмбединги
-word2vec_models = {}
+# 3. Генерация данных для обучения Word2Vec
+def generate_training_data(texts, word_to_idx, window_size=5):
+    data = []
+    for sentence in texts:
+        for i, target_word in enumerate(sentence):
+            start = max(0, i - window_size)
+            end = min(len(sentence), i + window_size + 1)
+            for context_word in sentence[start:i] + sentence[i+1:end]:
+                data.append((word_to_idx[target_word], word_to_idx[context_word]))
+    return data
 
+training_data = generate_training_data(text, word_to_idx, window_size=5)
+
+# 4. Реализация Word2Vec
+def train_word2vec(training_data, vocab_size, embedding_dim, learning_rate=0.01, epochs=10):
+    W_input = np.random.uniform(-0.5, 0.5, (vocab_size, embedding_dim))  # Входной слой
+    W_output = np.random.uniform(-0.5, 0.5, (embedding_dim, vocab_size))  # Выходной слой
+    
+    def softmax(x):
+        exp_x = np.exp(x - np.max(x))
+        return exp_x / np.sum(exp_x)
+    
+    for epoch in range(epochs):
+        loss = 0
+        for target_word, context_word in training_data:
+            # Forward pass
+            hidden = W_input[target_word]
+            output = np.dot(hidden, W_output)
+            softmax_output = softmax(output)
+
+            # Compute loss
+            loss += -np.log(softmax_output[context_word])
+
+            # Backward pass
+            d_output = softmax_output.copy()
+            d_output[context_word] -= 1
+
+
+            # Update weights
+            W_output -= learning_rate * np.outer(hidden, d_output)
+            W_input[target_word] -= learning_rate * np.dot(W_output, d_output)
+        
+        print(f"Epoch {epoch+1}, Loss: {loss:.4f}")
+    
+    return W_input, W_output
+
+# Обучение Word2Vec для каждого размера эмбеддингов
+trained_models = {}
 for size in params.embedding_sizes:
-    model = Word2Vec(text, vector_size=size, window=5, min_count=1, workers=4)
-    word2vec_models[size] = model
-    # сохраняем
-    model.save(f"output/word2vec{size}.model")
+    print(f"Training Word2Vec with embedding dimension {size}")
+    W_input, _ = train_word2vec(training_data, vocab_size, size, learning_rate=0.01, epochs=10)
+    trained_models[size] = W_input
+    # Сохранение
+    np.save(f'output/word2vec_embeddings_{size}.npy', trained_models[size])
 
-# 3. Подготовка данных для нейросети
 
-def prepare_data(texts, word2vec_model, tokenizer, L=5):
+# 5. Подготовка данных для нейросети
+
+def prepare_data(texts, embeddings, tokenizer, L=5):
     X, y = [], []
     for sentence in texts:
         for i in range(len(sentence) - L):
-            # Берем L слов и следующее за ними
             context = sentence[i:i+L]
             target = sentence[i+L]
-            
-            # Заменяем слова на векторы
-            context_vectors = [word2vec_model.wv[word] for word in context]
+
+            # Преобразуем слова в эмбеддинги
+            context_vectors = [embeddings[word_to_idx.get(word, 1)] for word in context]
             X.append(context_vectors)
-            y.append(target)
-    # Преобразуем  ожидаемые слова в индексы через tokenizer
-    y_indices = tokenizer.texts_to_sequences(y)
-    y = tf.keras.utils.to_categorical(y_indices, num_classes=params.vocab_size)
-    
+            y.append(word_to_idx.get(target, 1))
+
+    # Преобразуем целевые слова в категориальные метки
+    #y_indices = [tokenizer.texts_to_sequences([word])[0][0] for word in y]
+    y = tf.keras.utils.to_categorical(y, num_classes=vocab_size)
+
     return np.array(X), np.array(y)
 
 
-# 4. Создание и обучение нейросети
+ #6. Создание и обучение нейросети
 def create_model(embedding_size):
-    
     model = Sequential([
-        Input(shape=(5, embedding_size)),
-        #  про Flatten Выравнивает входные данные. Не влияет на размер пакета.
-        # Примечание: если входные данные имеют форму (batch,) без оси признаков, то при сглаживании добавляется дополнительный размер канала, и выходная форма будет (batch, 1).
+        Input(shape=(params.L, embedding_size)),
         Flatten(),
         Dense(1500, activation='relu'),
-        Dense(params.vocab_size, activation='softmax')
+        Dense(vocab_size, activation='softmax')
     ])
-    
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
     return model
+
 
 # Обучаем модели с разными эмбедингами
 history_dict = {}
 
 
 # Для каждого размера эмбеддинга:
-for size in params.embedding_sizes:
-    X, y = prepare_data(text, word2vec_models[size], tokenizer, L=params.L)
+for size, embeddings in trained_models.items():
+    print(f"Preparing data for embedding size {size}")
+    X, y = prepare_data(text, embeddings, None, L=params.L)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    
+    print(f"Training neural network with embedding size {size}")
     model = create_model(size)
     history = model.fit(X_train, y_train, epochs=params.epochs, batch_size=params.batch_size)
     history_dict[size] = history.history['loss']
+
     loss, accuracy = model.evaluate(X_test, y_test)
-    print(f"Size {size}: Test accuracy = {accuracy:.4f} Test Loss: {loss:.4f}")
-    # Сохраняем модель в файл
-    model.save(f"output/model_trained{size}.keras")  
-    print(f"Model with embedding size {size} saved!")
+    print(f"Size {size}: Test accuracy = {accuracy:.4f}, Test Loss = {loss:.4f}")
+    model.save(f"output/model_trained{size}.keras")
+    
+    # предсказываем слово
+
+    test_sentence = "В столовой с низким потолком, глубоко под землей,"
+    test_tokens = preprocess_text(test_sentence)
+    
+    test_indices = [word_to_idx.get(word, 1) for word in test_tokens[0]]
+
+    # Получение эмбедингов
+    embeddings = trained_models[size]
+    input_vector = np.array([[embeddings[word_to_idx[word]] for word in test_tokens[0]]])
+
+    # Предсказание
+    output = model.predict(input_vector)
+    predicted_word = idx_to_word[np.argmax(output)]
+    print(f"Predicted next word: {predicted_word}")
 
     
 
@@ -155,6 +234,6 @@ plt.ylabel('Loss')
 plt.xlabel('Epoch')
 plt.legend()
 #plt.show() # просто не хочу чтоб он рисовал достал меня
-plt.savefig("losses.jpg")
+plt.savefig("output/losses.jpg")
 
 

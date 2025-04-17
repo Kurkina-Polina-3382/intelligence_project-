@@ -22,44 +22,8 @@ from preprosessing_text import preprocess_text
 import params as params
 
 
-
-# def preprocess_text(text):
-    
-#     data = []  
-
-#     stemmer = SnowballStemmer("russian")
-#     stop_words = set(stopwords.words('russian'))
-
-#     sentences = sent_tokenize(text, language='russian')  # преобразуем текст в список предложений (токенов)
-    
-#     for sent in sentences:
-#         # Приведение к нижнему регистру
-#         sent = sent.lower()
-            
-#         # Удаление спецсимволов и цифр
-#         sent = re.sub(r'[^а-яёa-z\s]', '', sent) 
-        
-        
-#         # Токенизация
-#         tokens = word_tokenize(sent, language='russian')
-
-
-#         # Удаление стоп-слов
-#         tokens = [word for word in tokens if word not in stop_words]
-        
-#         # Стемминг
-#         # но вообще можно использовать лемматизацию. она должна давать лучше результат (бежал - бегать) morph = MorphAnalyzer()
-#         tokens = [stemmer.stem(word) for word in tokens]
-        
-#         data.append(tokens)  # Добавляем список токенов (предложение)
-#         #может и не делать разбиение на предложение
-                
-#     # Фильтрация от пустых предложений
-#     data = [sent for sent in data if sent]
-#     return data
-
 def load_learning_data():
-    print("preprocessing text")
+    print("preprocessing text\n\n")
     learning_files = os.listdir("learning_data")
     data = []  
     for f in learning_files:
@@ -113,7 +77,11 @@ def generate_training_data(texts, word_to_idx, window_size=5):
 training_data = generate_training_data(text, word_to_idx, window_size=5)
 
 # 4. Реализация Word2Vec
-def train_word2vec(training_data, vocab_size, embedding_dim, learning_rate=0.01, epochs=10, batch_size=1024):
+def train_word2vec(training_data, vocab_size, embedding_dim):
+    learning_rate=params.learning_rate
+    epochs=params.epochs_word2vec
+    batch_size=params.batch_size_word2vec
+    print(f"Processing size  on PID {os.getpid()}\n\n")
     W_input = np.random.uniform(-0.5, 0.5, (vocab_size, embedding_dim))  # Входной слой
     W_output = np.random.uniform(-0.5, 0.5, (embedding_dim, vocab_size))  # Выходной слой
     
@@ -127,7 +95,7 @@ def train_word2vec(training_data, vocab_size, embedding_dim, learning_rate=0.01,
         np.random.shuffle(training_data)
         
         for batch_idx in range(n_batches):
-            print(batch_idx)
+
             batch = training_data[batch_idx*batch_size : (batch_idx+1)*batch_size]
             target_words = [item[0] for item in batch]
             context_words = [item[1] for item in batch]
@@ -149,19 +117,29 @@ def train_word2vec(training_data, vocab_size, embedding_dim, learning_rate=0.01,
             for i, word in enumerate(target_words):
                 W_input[word] -= learning_rate * np.dot(W_output, d_output[i]) / batch_size
         
-        print(f"Epoch {epoch+1}, Loss: {loss/len(training_data):.4f}")
+        print(f"Epoch {epoch+1}, Loss: {loss/len(training_data):.4f}\n")
     
     
     return W_input, W_output
 
+def train_model_word2vec(args):
+    size, training_data, vocab_size = args
+    print(f"Training Word2Vec with embedding dimension {size}\n")
+    W_input, _ = train_word2vec(training_data, vocab_size, size)
+    # Сохраняем embeddings в файл
+    np.save(f'output/word2vec_embeddings_{size}.npy', W_input)
+    
+    return {'size': size,
+        'embedding': W_input
+    }
+
 # Обучение Word2Vec для каждого размера эмбеддингов
 trained_models = {}
-for size in params.embedding_sizes:
-    print(f"Training Word2Vec with embedding dimension {size}")
-    W_input, _ = train_word2vec(training_data, vocab_size, size, learning_rate=0.01, epochs=10)
-    trained_models[size] = W_input
-    # Сохранение
-    np.save(f'output/word2vec_embeddings_{size}.npy', trained_models[size])
+with Pool(processes=len(params.embedding_sizes)) as pool:
+    results = pool.map(train_model_word2vec, [(size, training_data, vocab_size) for size in params.embedding_sizes])
+    
+    for res in results:
+        trained_models[res['size']] = res['embedding']
 
 
 # 5. Подготовка данных для нейросети
@@ -185,7 +163,7 @@ def prepare_data(texts, embeddings, tokenizer, L=5):
     return np.array(X), np.array(y)
 
 
- #6. Создание и обучение нейросети
+ #6. Создание нейросети
 def create_model(embedding_size):
     model = Sequential([
         Input(shape=(params.L, embedding_size)),
@@ -198,12 +176,11 @@ def create_model(embedding_size):
 
 
 # Обучаем модели с разными эмбедингами
-history_dict = {}
 
 
-# Для каждого размера эмбеддинга:
-for size, embeddings in trained_models.items():
-    print(f"Preparing data for embedding size {size}")
+def train_model(args):
+    size, embeddings = args
+    print(f"Processing size {size} on PID {os.getpid()}")
     X, y = prepare_data(text, embeddings, None, L=params.L)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
     
@@ -230,9 +207,21 @@ for size, embeddings in trained_models.items():
     # Предсказание
     output = model.predict(input_vector)
     predicted_word = idx_to_word[np.argmax(output)]
-    print(f"Predicted next word: {predicted_word}")
+    print(f"Predicted next word for model {size} : {predicted_word}")
+    return {
+        'size': size,
+        'accuracy': accuracy,
+        'loss': loss,
+        'history': history.history
+    }
 
+history_dict = {}
+with Pool(processes=len(params.embedding_sizes)) as pool:
+    results = pool.map(train_model, [(size, trained_models[size]) for size in params.embedding_sizes])
     
+    for res in results:
+        print(f"Size {res['size']}: Accuracy = {res['accuracy']:.4f}")
+        history_dict[res['size']] = res['history']['loss']
 
 # Визуализация потерь при обучении
 plt.figure(figsize=(10, 6))
@@ -243,7 +232,7 @@ plt.title('Model loss during training')
 plt.ylabel('Loss')
 plt.xlabel('Epoch')
 plt.legend()
-#plt.show() # просто не хочу чтоб он рисовал достал меня
+plt.show() 
 plt.savefig("output/losses.jpg")
 
 

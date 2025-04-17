@@ -1,92 +1,84 @@
 import numpy as np   
 import re               
 import os
-import matplotlib.pyplot as plt      # библиотека для рисования графиков
-import random  
-import params as params          
-
+import matplotlib.pyplot as plt       
+   
+import pickle       
+from sklearn.model_selection import train_test_split 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Embedding, Flatten, Input
-
+from tensorflow.keras.layers import Dense, Flatten, Input
 from tensorflow.keras.preprocessing.text import Tokenizer
-#from tokenizers import Tokenizer, models, trainers
-#from tokenizers import ByteLevelBPETokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from gensim.models import Word2Vec
-from tensorflow.keras.models import load_model
 
 import nltk
 from nltk.corpus import stopwords
 nltk.download('stopwords')
-
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.stem.snowball import SnowballStemmer
+
+# Скачиваем необходимые ресурсы NLTK
+nltk.download('stopwords')
 nltk.download('punkt')
-from sklearn.model_selection import train_test_split 
-import pickle
 
-''' можно в теории так препроцессинг делать 
-tf.keras.preprocessing.text.Tokenizer(
-    num_words=None,
-    filters='!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n',
-    lower=True,
-    split=' ',
-    char_level=False,
-    oov_token=None,
-    analyzer=None,
-    **kwargs
-)'''
+import params as params
 
-def preprocess_text():
-    print("preprocessing text")
-    learning_files = os.listdir("learning_data")
+from gensim.models import Word2Vec
+
+
+def preprocess_text(text):
+    
     data = []  
 
     stemmer = SnowballStemmer("russian")
     stop_words = set(stopwords.words('russian'))
 
-    for f in learning_files:
-        with open("learning_data/" + f, 'r', encoding='utf-8') as file:
-            text = file.read()
-            sentences = sent_tokenize(text, language='russian')  # преобразуем текст в список предложений (токенов)
-            
-            for sent in sentences:
-                # Приведение к нижнему регистру
-                sent = sent.lower()
-                    
-                # Удаление спецсимволов и цифр
-                sent = re.sub(r'[^а-яёa-z\s]', '', sent) 
-                
-                
-                # Токенизация
-                tokens = word_tokenize(sent, language='russian')
-
-
-                # Удаление стоп-слов
-                tokens = [word for word in tokens if word not in stop_words]
-                
-                # Стемминг
-                # но вообще можно использовать лемматизацию. она должна давать лучше результат (бежал - бегать) morph = MorphAnalyzer()
-                tokens = [stemmer.stem(word) for word in tokens]
-                
-                data.append(tokens)  # Добавляем список токенов (предложение)
-                #может и не делать разбиение на предложение
-                
-                    
+    sentences = sent_tokenize(text, language='russian')  # преобразуем текст в список предложений (токенов)
     
+    for sent in sentences:
+        # Приведение к нижнему регистру
+        sent = sent.lower()
+            
+        # Удаление спецсимволов и цифр
+        sent = re.sub(r'[^а-яёa-z\s]', '', sent) 
+        
+        
+        # Токенизация
+        tokens = word_tokenize(sent, language='russian')
+
+
+        # Удаление стоп-слов
+        tokens = [word for word in tokens if word not in stop_words]
+        
+        # Стемминг
+        # но вообще можно использовать лемматизацию. она должна давать лучше результат (бежал - бегать) morph = MorphAnalyzer()
+        tokens = [stemmer.stem(word) for word in tokens]
+        
+        data.append(tokens)  # Добавляем список токенов (предложение)
+        #может и не делать разбиение на предложение
+                
     # Фильтрация от пустых предложений
     data = [sent for sent in data if sent]
     return data
 
-text = preprocess_text()
+def load_learning_data():
+    print("preprocessing text")
+    learning_files = os.listdir("learning_data")
+    data = []  
+    for f in learning_files:
+        with open("learning_data/" + f, 'r', encoding='utf-8') as file:
+            text = file.read()
+            data.extend(preprocess_text(text))
+
+    return data
+
+text = load_learning_data()
 
 # Преобразование в числовые индексы Векторизация (токениза
 # ция в числа)
 tokenizer = Tokenizer(num_words=10_000, oov_token=0)
 tokenizer.fit_on_texts(text)
 
-with open('tokenizer.pkl', 'wb') as handle:
+with open('output/tokenizer.pkl', 'wb') as handle:
     pickle.dump(tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 # эмбединги

@@ -132,13 +132,17 @@ def train_model_word2vec(args):
         'embedding': W_input
     }
 
-# обучение Word2Vec для каждого размера эмбеддингов
 trained_models = {}
-with Pool(processes=len(params.embedding_sizes)) as pool:
-    results = pool.map(train_model_word2vec, [(size, training_data, vocab_size) for size in params.embedding_sizes])
-    
-    for res in results:
-        trained_models[res['size']] = res['embedding']
+for size in params.embedding_sizes:
+    results = train_model_word2vec([size, training_data, vocab_size])
+    trained_models[results['size']] = results['embedding']
+# обучение Word2Vec для каждого размера эмбеддингов
+#trained_models = {}
+#with Pool(processes=1) as pool:
+#    results = pool.map(train_model_word2vec, [(size, training_data, vocab_size) for size in params.embedding_sizes])
+#
+#    for res in results:
+#        trained_models[res['size']] = res['embedding']
 
 
 # подготовка данных для нейросети

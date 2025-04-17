@@ -9,6 +9,7 @@ from joblib import Parallel, delayed
 # Скачиваем необходимые ресурсы NLTK
 nltk.download('stopwords')
 nltk.download('punkt')
+nltk.download('punkt_tab')
 # Инициализация объектов 1 раз (вместо создания в каждой итерации)
 stemmer = SnowballStemmer("russian")
 stop_words = set(stopwords.words('russian'))

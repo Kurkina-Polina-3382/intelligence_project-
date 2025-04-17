@@ -2,7 +2,8 @@ import numpy as np
 import re               
 import os
 import matplotlib.pyplot as plt  
-from collections import Counter     
+from collections import Counter   
+from multiprocessing import Pool  
    
 import pickle       
 from sklearn.model_selection import train_test_split 
@@ -112,7 +113,7 @@ def generate_training_data(texts, word_to_idx, window_size=5):
 training_data = generate_training_data(text, word_to_idx, window_size=5)
 
 # 4. Реализация Word2Vec
-def train_word2vec(training_data, vocab_size, embedding_dim, learning_rate=0.01, epochs=10):
+def train_word2vec(training_data, vocab_size, embedding_dim, learning_rate=0.01, epochs=10, batch_size=1024):
     W_input = np.random.uniform(-0.5, 0.5, (vocab_size, embedding_dim))  # Входной слой
     W_output = np.random.uniform(-0.5, 0.5, (embedding_dim, vocab_size))  # Выходной слой
     
@@ -120,27 +121,36 @@ def train_word2vec(training_data, vocab_size, embedding_dim, learning_rate=0.01,
         exp_x = np.exp(x - np.max(x))
         return exp_x / np.sum(exp_x)
     
+    n_batches = len(training_data) // batch_size
     for epoch in range(epochs):
         loss = 0
-        for target_word, context_word in training_data:
+        np.random.shuffle(training_data)
+        
+        for batch_idx in range(n_batches):
+            print(batch_idx)
+            batch = training_data[batch_idx*batch_size : (batch_idx+1)*batch_size]
+            target_words = [item[0] for item in batch]
+            context_words = [item[1] for item in batch]
+            
             # Forward pass
-            hidden = W_input[target_word]
-            output = np.dot(hidden, W_output)
+            hidden = W_input[target_words]  # shape: (batch_size, embedding_dim)
+            output = np.dot(hidden, W_output)  # shape: (batch_size, vocab_size)
             softmax_output = softmax(output)
 
             # Compute loss
-            loss += -np.log(softmax_output[context_word])
-
+            loss += -np.sum(np.log(softmax_output[np.arange(batch_size), context_words]))
+            
             # Backward pass
             d_output = softmax_output.copy()
-            d_output[context_word] -= 1
-
-
+            d_output[np.arange(batch_size), context_words] -= 1
+            
             # Update weights
-            W_output -= learning_rate * np.outer(hidden, d_output)
-            W_input[target_word] -= learning_rate * np.dot(W_output, d_output)
+            W_output -= learning_rate * np.dot(hidden.T, d_output) / batch_size
+            for i, word in enumerate(target_words):
+                W_input[word] -= learning_rate * np.dot(W_output, d_output[i]) / batch_size
         
-        print(f"Epoch {epoch+1}, Loss: {loss:.4f}")
+        print(f"Epoch {epoch+1}, Loss: {loss/len(training_data):.4f}")
+    
     
     return W_input, W_output
 

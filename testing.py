@@ -17,18 +17,39 @@ with open('output/vocab.pkl', 'rb') as f:
     word_to_idx = vocab_data['word_to_idx']
     idx_to_word = vocab_data['idx_to_word']
 
-# 5. Тестирование модели на небольшом предложении
-test_sentence = "В столовой с низким потолком, глубоко под землей,"
+
+def calculate_perplexity(model, embeddings, word_to_idx, test_sequence, L=params.L):
+    log_probs = []
+    for i in range(L, len(test_sequence)):
+        context = test_sequence[i - L:i]
+        target_word = test_sequence[i]
+        context_vectors = [embeddings[word_to_idx.get(word, 1)] for word in context]
+        context_vectors = np.array(context_vectors).reshape(1, L, -1)
+        predictions = model.predict(context_vectors, verbose=0)[0]
+        target_index = word_to_idx.get(target_word, 1)
+        target_prob = predictions[target_index]
+        if target_prob > 0:
+            log_probs.append(np.log(target_prob))
+        else:
+            log_probs.append(-np.inf)
+    perplexity = np.exp(-np.mean(log_probs))
+    return perplexity
+
+
+test_sentence = "В столовой с низким потолком, глубоко под землей, "
 test_tokens = preprocess_text(test_sentence)
-test_indices = [word_to_idx[word] for word in test_tokens]
+
+text_perplexity = "Был холодный ясный апрельский день, и часы пробили тринадцать. Уткнув подбородок в грудь, чтобы спастись от злого ветра, Уинстон Смит торопливо шмыгнул за стеклянную дверь жилого дома «Победа», но все-таки впустил за собой вихрь зернистой пыли. "
+text_perp_tokens = preprocess_text(text_perplexity)
 
 
-# Предсказание следующего слова для каждой модели
 for size in params.embedding_sizes:
     # Загрузка модели
-    model = load_model(f"output/model_trained{size}.keras")
-    # Загрузка word2vec
+    model = tf.keras.models.load_model(f"output/model_trained{size}.keras")
+     # Загрузка word2vec
     embeddings = np.load(f'output/word2vec_embeddings_{size}.npy')
+    perplexity = calculate_perplexity(model, embeddings, word_to_idx, text_perp_tokens[0], L=params.L)
+    print(f"Модель с размером эмбендинга {size}: Перплексия = {perplexity:.6f}")
     # Заменяем слова на векторы
     input_data = np.array([[embeddings[word_to_idx[word]] for word in test_tokens[0]]])
 
@@ -37,4 +58,6 @@ for size in params.embedding_sizes:
     predicted_idx = np.argmax(predictions[0])
     predicted_word = idx_to_word[predicted_idx]
     print(f"\nWith embedding size {size}, predicted next word: '{predicted_word}'")
+
+
 

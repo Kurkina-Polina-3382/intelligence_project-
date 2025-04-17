@@ -77,7 +77,6 @@ def preprocess_text():
     
     # Фильтрация от пустых предложений
     data = [sent for sent in data if sent]
-    print(data)
     return data
 
 text = preprocess_text()
@@ -86,14 +85,9 @@ text = preprocess_text()
 # ция в числа)
 tokenizer = Tokenizer(num_words=10_000, oov_token=0)
 tokenizer.fit_on_texts(text)
-# text to sequenses like  [[4, 5, 6, 7, 8, 9, 10, 11, 12], [2, 13, 14, 15, 16, 17],
-text_sequences = tokenizer.texts_to_sequences(text)
-# print(tokenizer.get_config())
-# print("\n\n\n")
-# print(text_sequences)
 
-# Сохранение надо теперь через json писать
-#tokenizer.save_model("output/tokenizer")
+with open('tokenizer.pkl', 'wb') as handle:
+    pickle.dump(tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 # эмбединги
 word2vec_models = {}
@@ -118,13 +112,10 @@ def prepare_data(texts, word2vec_model, tokenizer, L=5):
             context_vectors = [word2vec_model.wv[word] for word in context]
             X.append(context_vectors)
             y.append(target)
-    #print("X", X, "\n y", y)
-    # Преобразуем слова в индексы через tokenizer
-    y_indices = [tokenizer.encode(word).ids[0] for word in y]
-    #print("y_indeces", y_indices)
+    # Преобразуем  ожидаемые слова в индексы через tokenizer
+    y_indices = tokenizer.texts_to_sequences(y)
     y = tf.keras.utils.to_categorical(y_indices, num_classes=params.vocab_size)
-    #print(y)
-
+    
     return np.array(X), np.array(y)
 
 
@@ -136,7 +127,6 @@ def create_model(embedding_size):
         #  про Flatten Выравнивает входные данные. Не влияет на размер пакета.
         # Примечание: если входные данные имеют форму (batch,) без оси признаков, то при сглаживании добавляется дополнительный размер канала, и выходная форма будет (batch, 1).
         Flatten(),
-#Embedding(params.vocab_size, embedding_size, input_length=params.L), 
         Dense(1500, activation='relu'),
         Dense(params.vocab_size, activation='softmax')
     ])
@@ -147,11 +137,11 @@ def create_model(embedding_size):
 # Обучаем модели с разными эмбедингами
 history_dict = {}
 
+
 # Для каждого размера эмбеддинга:
 for size in params.embedding_sizes:
     X, y = prepare_data(text, word2vec_models[size], tokenizer, L=params.L)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-    
     model = create_model(size)
     history = model.fit(X_train, y_train, epochs=params.epochs, batch_size=params.batch_size)
     history_dict[size] = history.history['loss']
@@ -160,7 +150,8 @@ for size in params.embedding_sizes:
     # Сохраняем модель в файл
     model.save(f"output/model_trained{size}.keras")  
     print(f"Model with embedding size {size} saved!")
- 
+
+    
 
 # Визуализация потерь при обучении
 plt.figure(figsize=(10, 6))
@@ -173,4 +164,5 @@ plt.xlabel('Epoch')
 plt.legend()
 #plt.show() # просто не хочу чтоб он рисовал достал меня
 plt.savefig("losses.jpg")
+
 

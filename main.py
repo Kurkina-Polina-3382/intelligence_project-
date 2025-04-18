@@ -35,114 +35,126 @@ def load_learning_data():
 
 text = load_learning_data()
 
-# словарь (токенизация)
+# словарь 
 
 def build_vocab(texts):
-    # сортировка слов по частоте
-    vocab = [word for word, _ in Counter(word for sentence in texts for word in sentence).most_common(params.vocab_size)]
+    word_to_id = {}
+    id_to_word = {}
+    for sentance in text:
+        for i, token in enumerate(set(sentance)):
+                word_to_id[token] = i
+                id_to_word[i] = token
     
-    # служебные токены
-    vocab = ['<PAD>', '<OOV>'] + vocab
-    
-    word_to_idx = {word: idx for idx, word in enumerate(vocab)}
-    idx_to_word = {idx: word for idx, word in enumerate(vocab)}
-    
-    return word_to_idx, idx_to_word, len(vocab)
+    return word_to_id, id_to_word
 
-word_to_idx, idx_to_word, vocab_size = build_vocab(text)
-
+word_to_idx, idx_to_word = build_vocab(text)
+vocab_size = len(word_to_idx)
 # сохраняем словари
 with open('output/vocab.pkl', 'wb') as f:
     pickle.dump({
         'word_to_idx': word_to_idx,
         'idx_to_word': idx_to_word,
-        'vocab_size': vocab_size
+
     }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 # эмбединги
 # генерация данных для обучения Word2Vec
-def generate_training_data(texts, word_to_idx, window_size=5):
-    data = []
-    for sentence in texts:
-        for i, target_word in enumerate(sentence):
-            start = max(0, i - window_size)
-            end = min(len(sentence), i + window_size + 1)
-            for context_word in sentence[start:i] + sentence[i+1:end]:
-                data.append((word_to_idx[target_word], word_to_idx[context_word]))
-    return data
+def concat(*iterables):
+    for iterable in iterables:
+        yield from iterable
 
-training_data = generate_training_data(text, word_to_idx, window_size=5)
+def one_hot_encode(id, vocab_size):
+    res = [0] * vocab_size
+    res[id] = 1
+    return res
+def generate_training_data(text, word_to_id, L):
+    X = []
+    y = []
+    for tokens in text:
+        n_tokens = len(tokens)
+
+        for i in range(n_tokens):
+            idx = concat(
+                range(max(0, i - L), i),
+                range(i, min(n_tokens, i + L + 1))
+            )
+            for j in idx:
+                if i == j:
+                    continue
+                X.append(one_hot_encode(word_to_id[tokens[i]], len(word_to_id)))
+                y.append(one_hot_encode(word_to_id[tokens[j]], len(word_to_id)))
+
+    return np.asarray(X), np.asarray(y)
+
 
 # Реализация Word2Vec
-def train_word2vec(training_data, vocab_size, embedding_dim):
-    learning_rate=params.learning_rate
-    epochs=params.epochs_word2vec
-    batch_size=params.batch_size_word2vec
-    print(f"Обучение Word2vec с PID {os.getpid()}\n\n")
-    W_input = np.random.uniform(-0.5, 0.5, (vocab_size, embedding_dim)) 
-    W_output = np.random.uniform(-0.5, 0.5, (embedding_dim, vocab_size))  
-    
-    def softmax(x):
-        exp_x = np.exp(x - np.max(x))
-        return exp_x / np.sum(exp_x)
-    
-    n_batches = len(training_data) // batch_size
-    for epoch in range(epochs):
-        loss = 0
-        np.random.shuffle(training_data)
-        
-        for batch_idx in range(n_batches):
-
-            batch = training_data[batch_idx*batch_size : (batch_idx+1)*batch_size]
-            target_words = [item[0] for item in batch]
-            context_words = [item[1] for item in batch]
-            
-            
-            hidden = W_input[target_words] 
-            output = np.dot(hidden, W_output)  
-            softmax_output = softmax(output)
-
-            
-            loss += -np.sum(np.log(softmax_output[np.arange(batch_size), context_words]))
-            
-            
-            d_output = softmax_output.copy()
-            d_output[np.arange(batch_size), context_words] -= 1
-            
-            
-            W_output -= learning_rate * np.dot(hidden.T, d_output) / batch_size
-            for i, word in enumerate(target_words):
-                W_input[word] -= learning_rate * np.dot(W_output, d_output[i]) / batch_size
-        
-        print(f"Epoch {epoch+1}, Loss: {loss/len(training_data):.4f}\n")
-    
-    
-    return W_input, W_output
-
-# обучение Word2Vec: функция для отдельного процесса
-def train_model_word2vec(args):
-    size, training_data, vocab_size = args
-    print(f"Training Word2Vec with embedding dimension {size}\n")
-    W_input, _ = train_word2vec(training_data, vocab_size, size)
-    # сохраняем эмбэддинги
-    np.save(f'output/word2vec_embeddings_{size}.npy', W_input)
-    
-    return {'size': size,
-        'embedding': W_input
+def init_network(vocab_size, n_embedding):
+    model = {
+        "w1": np.random.randn(vocab_size, n_embedding),
+        "w2": np.random.randn(n_embedding, vocab_size)
     }
+    return model
+def forward(model, X, return_cache=True):
+    cache = {}
 
-# обучение Word2Vec для каждого размера эмбеддингов
-trained_models = {}
-with Pool(processes=len(params.embedding_sizes)) as pool:
-    results = pool.map(train_model_word2vec, [(size, training_data, vocab_size) for size in params.embedding_sizes])
+    cache["a1"] = X @ model["w1"]
+    cache["a2"] = cache["a1"] @ model["w2"]
+    cache["z"] = softmax(cache["a2"])
+    cache["z"] = np.clip(cache["z"], 1e-10, 1.0)
+
+    if not return_cache:
+        return cache["z"]
+    return cache
+
+def softmax(X):
     
-    for res in results:
-        trained_models[res['size']] = res['embedding']
+    res = []
+    for x in X:
+        e_x = np.exp(x - np.max(x))
+        #exp = np.exp(x)
+        # if(exp.sum() <= 0 ):
+        #     print(f"Сумма exp равна нулю для x = {x}", flush=True)
+        #     print(X,  flush=True)
+        #     exit()
+        #assert(exp.sum() > 0)
+        res.append(e_x / e_x.sum())
+    return res
+
+def backward(model, X, y, alpha):
+    cache = forward(model, X)
+    da2 = cache["z"] - y
+    dw2 = cache["a1"].T @ da2
+    da1 = da2 @ model["w2"].T
+    dw1 = X.T @ da1
+    model["w1"] -= alpha * dw1
+    model["w2"] -= alpha * dw2
+    return cross_entropy(cache["z"], y)
+
+def cross_entropy(z, y):
+#    for i in range(len(z)):
+#        for b in range(len(z[i])):
+#             if z[i][b] == 0:
+#                 print("ОШИБКА: ", i, b)
+#                 print("логарифм ",np.log(z[i][b]))
+#                 assert(z[i][b] != 0)
+   #assert(len(np.nonzero(z==0)) != False)
+   return - np.sum(np.log(z) * y)
+
+# обучение Word2Vec
+trained_models = {}
+for size in params.embedding_sizes:
+    print(f"обучение word2vec с размером эмбэддинга {size}\n")
+    X, y = generate_training_data(text, word_to_idx, params.L)
+    model = init_network(len(word_to_idx), size)
+    history = [backward(model, X, y, params.learning_rate) for _ in range(params.epochs_word2vec)]
+    # сохраняем эмбэддинги
+    # np.save(f'output/word2vec_embeddings_{size}.npy', W_input)
+    trained_models[size] = model
 
 
 # подготовка данных для нейросети
-def prepare_data(texts, embeddings, tokenizer, L=5):
+def prepare_data(texts, embeddings, tokenizer, L=params.L):
     X, y = [], []
     for sentence in texts:
         for i in range(len(sentence) - L):
@@ -150,13 +162,17 @@ def prepare_data(texts, embeddings, tokenizer, L=5):
             target = sentence[i+L]
 
             # слова в эмбеддинги
-            context_vectors = [embeddings[word_to_idx.get(word, 1)] for word in context]
+            context_vectors = []
+            for word in context:
+                idx = word_to_idx.get(word, 1)
+                context_vectors.append(embeddings.get(idx, 1))
+            #context_vectors = [embeddings[word_to_idx.get(word, 1)] for word in context]
             X.append(context_vectors)
             y.append(word_to_idx.get(target, 1))
 
     # целевые слова в категориальные метки
     y = tf.keras.utils.to_categorical(y, num_classes=vocab_size)
-
+    
     return np.array(X), np.array(y)
 
 

@@ -166,10 +166,9 @@ def prepare_data(texts, embeddings, tokenizer, L=params.L):
             for word in context:
                 idx = word_to_idx.get(word, 1)
                 context_vectors.append(embeddings.get(idx, 1))
-            #context_vectors = [embeddings[word_to_idx.get(word, 1)] for word in context]
+            context_vectors = [embeddings[word_to_idx.get(word, 1)] for word in context] # подумать над 1
             X.append(context_vectors)
             y.append(word_to_idx.get(target, 1))
-
     # целевые слова в категориальные метки
     y = tf.keras.utils.to_categorical(y, num_classes=vocab_size)
     
